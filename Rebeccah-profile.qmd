@@ -1,0 +1,54 @@
+---
+title: "Rebeccah profile"
+author: "Rebeccah Chepkemoi Kapsekei"
+format: html
+editor: visual
+---
+
+Hello! My name is **Rebeccah Chepkemoi Kapsekei**, and I’m a Data Science student at Constructor University.  
+I’m passionate about machine learning, data visualization, and AI for social good.
+
+![](becks.jpg){height=200}
+
+
+```{r}
+#| label: packages-data
+#| echo: true
+library(tidyverse)
+library(readxl)
+profiles_2025 <- read_xlsx("Data Science Profile.xlsx")
+```
+
+```{r}
+#| label: my-profile
+#| fig-cap: "My Data Science Profile"
+
+library(forcats)
+library(stringr)
+library(readr)
+
+dimension_cols <- c(
+  "Social Science","Business","Data Visualization",
+  "Statistics","Mathematics","Programming","Machine Learning"
+)
+
+profiles_2025 <- profiles_2025 |>
+  mutate(across(all_of(dimension_cols), ~ readr::parse_number(as.character(.x))))
+
+profiles_2025 |>
+  mutate(Name_clean = str_squish(str_to_lower(Name))) |>
+  filter(Name_clean == "rebeccah chepkemoi kapsekei") |>
+  pivot_longer(all_of(dimension_cols), names_to = "Dimension", values_to = "Value") |>
+  
+ggplot(aes(fct_reorder(Dimension, Value), Value, fill = Dimension)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  labs(title = "Rebeccah Chepkemoi Kapsekei — Data Science Profile",
+       x = NULL, y = "Value (0–10)") +
+  theme_minimal()
+```
+**How I gained my top Data Science skills:**  
+I have built my strongest skills through consistent hands-on learning, especially by practicing data cleaning and visualization in R. Working on projects and assignments helped me understand how to turn raw data into meaningful insights. Collaborating with classmates and exploring real datasets strengthened my confidence in programming and analytical thinking.
+
+**What I want to learn next:**  
+My next goal is to improve my knowledge in machine learning, focusing on model development and interpretation. I want to learn how to automate data-driven decisions using advanced AI techniques. Ultimately, I hope to apply these skills to solve real-world challenges and make data science more impactful for communities.
