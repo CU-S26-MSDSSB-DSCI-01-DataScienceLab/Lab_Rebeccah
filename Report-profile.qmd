@@ -1,0 +1,843 @@
+---
+title: "Data Science Profiles Report"
+author: "Rebeccah Chepkemoi Kapsekei"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: 00_setup
+# Quiet, consistent chunk options
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+#| label: 01_install
+# Install any missing packages (harmless to re-run)
+pkgs <- c("ggplot2","dplyr","tidyr","readxl","forcats","scales","patchwork",
+          "glue","stringr","tibble","corrr")
+
+to_install <- setdiff(pkgs, rownames(installed.packages()))
+if (length(to_install)) install.packages(to_install)
+```
+
+```{r}
+#| label: packages-data
+
+# Load required packages
+library(tidyverse)    # covers ggplot2, dplyr, tidyr, readr, etc.
+library(tidymodels)   # for modeling (even if lightly used)
+library(readxl)       # for reading Excel files
+library(glue)
+library(corrr)
+library(patchwork)
+
+# ---- Import data ----
+# Current cohort
+profiles_2025 <- read_xlsx("Data Science Profile.xlsx")
+
+# Past cohorts (if CSV version exists)
+profiles_2025 <- read_xlsx("Data Science Profile.xlsx")
+
+
+# If your class instead uses the XLSX for past cohorts, use this instead:
+# profiles <- read_xlsx("Data Science Profiles 2021-2024.xlsx")
+
+
+# The 7 profile dimensions present in your sheet
+dimension_cols <- c(
+  "Social Science","Business","Data Visualization",
+  "Statistics","Mathematics","Programming","Machine Learning"
+)
+
+# Make 2025 sheet match the older one
+profiles_2025_prep <- profiles_2025 |>
+  mutate(
+    Year = 2025,
+    Type = if_else(Name == "Jan Lorenz", "Instructor", "Student")
+  ) |>
+  select(Year, all_of(dimension_cols), Type, Name)
+
+# Combine all years; make Type a factor with a stable order
+profiles <- profiles_2025_prep |>
+  mutate(Type = factor(Type, levels = c("Student","Instructor")))
+# Use current cohort only
+profiles <- if (exists("profiles_2025_prep")) profiles_2025_prep else profiles_2025
+profiles_all <- profiles
+
+
+# Long (tidy) data for plotting
+profiles_long <- profiles_all |>
+  pivot_longer(all_of(dimension_cols), names_to = "Dimension", values_to = "Value") |>
+  mutate(Dimension = fct_rev(fct_inorder(Dimension)))
+# Quick confirmation
+list(
+  n_people = dplyr::n_distinct(profiles_all$Name),
+  years    = range(profiles_all$Year, na.rm = TRUE),
+  rows_all = nrow(profiles_all),
+  rows_long= nrow(profiles_long)
+)
+```
+There are `r nrow(profiles_all)` individuals in the dataset, ranging from the year `r min(profiles_all$Year)` to `r max(profiles_all$Year)`.
+
+
+```{r}
+#| label: 03_data_audit
+audit <- profiles_long |>
+  dplyr::group_by(Year) |>
+  dplyr::summarise(
+    min_value = min(Value, na.rm = TRUE),
+    max_value = max(Value, na.rm = TRUE)
+  )
+
+knitr::kable(audit, caption = "Answer scale by year (min/max)")
+
+```
+
+**Summary.** The earlier cohorts used a rating scale starting at 1 and going to 5 (or 7), while the 2025 cohort uses a scale from 0 to 10. This difference in scale explains why the ranges differ across years and must be considered when comparing scores across cohorts.
+
+
+## 2. Average Profile of the Study Program
+
+## Average Profile (All Members)
+```{r}
+#| label: 04_program_profile
+profiles_long |>
+  group_by(Dimension) |>
+  summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") |>
+  ggplot2::ggplot(aes(Dimension, Mean)) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::labs(
+    title = "Average Data Science Profile",
+    x = NULL,
+    y = "Mean (0-10)"
+  ) +
+  ggplot2::theme_minimal()
+
+```
+**The average member of the study program:**  
+The typical profile shows strong ability in **Statistics**, suggesting that most students handle analytical and quantitative tasks well. In contrast, **Programming** scores tend to be lower, indicating that coding skills are still developing. Overall, the average student appears more confident in analytical thinking than in technical implementation, and programming ability grows over time during the program.
+
+
+```{r}
+#| label: 04_program_profile_notes
+#| results: asis
+library(glue)
+
+## 3. Dimension Analysis
+
+avg_dim <- profiles_long |>
+  dplyr::group_by(Dimension) |>
+  dplyr::summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(Mean))
+
+top2   <- head(avg_dim$Dimension, 2)
+low1   <- tail(avg_dim$Dimension, 1)
+spread <- max(avg_dim$Mean) - min(avg_dim$Mean)
+
+note_tail <- if (spread < 1.5) "a fairly balanced profile." else "meaningful differences across skills."
+
+cat(glue("
+**Notes.** The highest average scores are **{top2[1]}** and **{top2[2]}**, which appear as program strengths.
+The lowest average is **{low1}**, suggesting a relative development area.
+Overall spread across dimensions is **{round(spread, 2)}** points (0–10 scale), indicating {note_tail}
+"))
+
+```
+
+
+The average member of the study program shows their strongest ability in **Statistics**, suggesting that they are comfortable with analytical thinking, interpreting data, and working with quantitative information. This indicates that students in the program tend to develop strong foundational skills in statistical reasoning.
+
+However, **Programming** is the lowest dimension on average. This suggests that while students can understand and analyze data, they may still be building their confidence in turning those insights into working code or technical implementation. Programming may therefore be an area where more practice, training, or support could be beneficial.
+
+Overall, the profile suggests a group that is strong in understanding data and analytical concepts, but still growing in the practical and technical skill of writing code to apply that knowledge.
+
+
+## By Cohort (2021–2025)
+```{r}
+#| label: 05_cohorts
+profiles_long |>
+  group_by(Year, Dimension) |>
+  summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") |>
+  ggplot2::ggplot(aes(Dimension, Mean)) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::facet_wrap(~ Year, nrow = 2) +
+  ggplot2::labs(title = "Average Profile by Cohort",
+                x = NULL, y = "Mean") +
+  ggplot2::theme_minimal()
+```
+
+---
+
+### Under “By Cohort (2021–2025)”
+```r
+```{r}
+#| label: 05_cohorts_notes
+#| results: asis
+library(glue)
+yr_avg <- profiles_long |>
+  dplyr::group_by(Year) |>
+  dplyr::summarise(Overall = mean(Value, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(Overall))
+best_year <- yr_avg$Year[1]
+rng <- range(yr_avg$Overall)
+dim_trend <- profiles_long |>
+  dplyr::group_by(Year, Dimension) |>
+  dplyr::summarise(m = mean(Value, na.rm = TRUE), .groups = "drop") |>
+  tidyr::pivot_wider(names_from = Year, values_from = m)
+yrs <- sort(unique(profiles_long$Year))
+if (length(yrs) >= 2) {
+  dim_trend$chg <- dim_trend[[as.character(max(yrs))]] - dim_trend[[as.character(min(yrs))]]
+  up <- dim_trend$Dimension[which.max(dim_trend$chg)]
+  dn <- dim_trend$Dimension[which.min(dim_trend$chg)]
+  cat(glue("
+**Notes.** The cohort with the highest overall average is **{best_year}**.  
+Across cohorts, overall means range from **{round(rng[1],2)}** to **{round(rng[2],2)}**.  
+From **{min(yrs)}** → **{max(yrs)}**, the dimension with the biggest increase is **{up}**, while **{dn}** shows the largest decrease.
+"))
+} else {
+  cat(glue("
+**Notes.** Only one cohort is present (**{yrs}**), so trend comparisons are not applicable.  
+The overall mean is **{round(yr_avg$Overall[1],2)}**.  
+Consider adding additional cohorts to compare changes over time.
+"))
+}
+
+
+## Students vs Instructors
+```{r}
+#| label: 06_students_vs_instructors
+profiles_long |>
+  group_by(Type, Dimension) |>
+  summarise(Mean = mean(Value, na.rm = TRUE), .groups = "drop") |>
+  ggplot2::ggplot(aes(Dimension, Mean)) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::facet_wrap(~ Type) +
+  ggplot2::labs(title = "Students vs Instructors",
+                x = NULL, y = "Mean") +
+  ggplot2::theme_minimal()
+```
+
+---
+
+### Under “Students vs Instructors”
+```r
+```{r}
+#| label: 06_students_vs_instructors_notes
+#| results: asis
+library(glue)
+gaps <- profiles_long |>
+  dplyr::group_by(Type, Dimension) |>
+  dplyr::summarise(m = mean(Value, na.rm = TRUE), .groups = "drop") |>
+  tidyr::pivot_wider(names_from = Type, values_from = m) |>
+  dplyr::mutate(diff = `Instructor` - `Student`)
+big_gap <- gaps$Dimension[which.max(abs(gaps$diff))]
+lead <- ifelse(mean(profiles_all$Programming[profiles_all$Type == "Instructor"], na.rm = TRUE) >
+               mean(profiles_all$Programming[profiles_all$Type == "Student"],   na.rm = TRUE),
+               "Instructors", "Students")
+avg_gap <- mean(abs(gaps$diff), na.rm = TRUE)
+cat(glue("
+**Notes.** The largest Student–Instructor difference is in **{big_gap}**.  
+On average, absolute gaps across dimensions are **{round(avg_gap,2)}** points.  
+For **Programming**, **{lead}** score slightly higher on average.
+"))
+
+## Distributions per Dimension
+```{r}
+#| label: 07_distributions
+#| fig-height: 9
+profiles_long |>
+  ggplot2::ggplot(aes(Value)) +
+  ggplot2::geom_bar() +
+  ggplot2::facet_wrap(~ forcats::fct_rev(Dimension), ncol = 1, scales = "free_y") +
+  ggplot2::scale_x_continuous(breaks = 0:10) +
+  ggplot2::labs(x = "Score", y = "Count",
+                title = "Distribution of Scores per Dimension") +
+  ggplot2::theme_minimal()
+```
+**Interpretation.** Some competencies show more variation than others. Mathematics and Programming have wider spreads, meaning students differ more in these skills. Meanwhile, dimensions like Social Science and Data Visualization are more uniform, suggesting more consistent development across the group.
+
+---
+
+### Under “Distributions per Dimension”
+```r
+```{r}
+#| label: 07_distributions_notes
+#| results: asis
+library(glue)
+spread_tbl <- profiles_long |>
+  dplyr::group_by(Dimension) |>
+  dplyr::summarise(IQR = IQR(Value, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(IQR))
+most_var <- spread_tbl$Dimension[1]
+pct_5_8 <- mean(dplyr::between(profiles_long$Value, 5, 8), na.rm = TRUE)
+cat(glue("
+**Notes.** The widest spread in scores (largest IQR) occurs in **{most_var}**.  
+About **{scales::percent(pct_5_8)}** of all scores fall between 5 and 8.  
+Most dimensions show {ifelse(median(spread_tbl$IQR) < 2, 'moderate', 'substantial')} variability across individuals.
+"))
+
+## Summary Statistics Table
+```{r}
+#| label: 08_summary_table
+summary_tbl <- profiles_long |>
+  group_by(Dimension) |>
+  summarise(
+    mean   = mean(Value, na.rm = TRUE),
+    sd     = sd(Value, na.rm = TRUE),
+    median = median(Value, na.rm = TRUE),
+    q1     = quantile(Value, 0.25, na.rm = TRUE),
+    q3     = quantile(Value, 0.75, na.rm = TRUE),
+    iqr    = IQR(Value, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(mean))
+
+knitr::kable(summary_tbl, digits = 2, caption = "Summary statistics by dimension")
+```
+**Interpretation.** The dimensions differ in how spread out the scores are. Dimensions with a larger standard deviation and interquartile range show **more diversity** in skill levels, meaning students vary widely in how strong they are in those areas. In contrast, dimensions with a smaller spread are **more uniform**, indicating more similar skill levels across students. This suggests that some competencies are developed more consistently within the program, while others show greater variation in experience and background.
+
+## Correlation Heatmap (Dimensions)
+```{r}
+#| label: 09_cor_heatmap
+# Compute correlation matrix across the seven dimensions
+cor_mat <- profiles_all |>
+  select(all_of(dimension_cols)) |>
+  cor(use = "pairwise.complete.obs")
+
+# Tidy for ggplot
+cor_df <- as.data.frame(as.table(cor_mat)) |>
+  rename(Dimension_X = Var1, Dimension_Y = Var2, Correlation = Freq)
+
+ggplot2::ggplot(cor_df, aes(Dimension_X, Dimension_Y, fill = Correlation)) +
+  ggplot2::geom_tile() +
+  ggplot2::scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B",
+                                midpoint = 0, limits = c(-1, 1)) +
+  ggplot2::coord_equal() +
+  ggplot2::labs(title = "Correlation Between Dimensions", x = NULL, y = NULL) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+---
+
+### Under “Correlation Heatmap”
+```{r}
+#| label: 09_cor_heatmap_notes
+#| results: asis
+library(glue)
+cm <- profiles_all |>
+  dplyr::select(all_of(dimension_cols)) |>
+  cor(use = "pairwise.complete.obs")
+
+# Keep only lower triangle
+cm[upper.tri(cm, diag = TRUE)] <- NA
+
+# Find strongest positive and negative correlations safely
+max_idx <- which(cm == max(cm, na.rm = TRUE), arr.ind = TRUE)
+min_idx <- which(cm == min(cm, na.rm = TRUE), arr.ind = TRUE)
+
+pos_pair <- paste(rownames(cm)[max_idx[1]], colnames(cm)[max_idx[2]], sep = " – ")
+neg_pair <- paste(rownames(cm)[min_idx[1]], colnames(cm)[min_idx[2]], sep = " – ")
+
+cat(glue("
+**Notes.** Strongest positive correlation: **{pos_pair}** (r = **{round(max(cm, na.rm = TRUE), 2)}**).  
+Strongest negative correlation: **{neg_pair}** (r = **{round(min(cm, na.rm = TRUE), 2)}**).  
+Overall, relationships are {ifelse(max(cm, na.rm = TRUE) > 0.6, 'fairly strong', 'moderate')} among core technical skills.
+"))
+```
+**Interpretation:** The correlation results show that the strongest positive relationship is between skills that tend to develop together, such as Programming with Machine Learning and Mathematics. This suggests that students who are strong in one technical skill are often strong in related technical areas. The strongest negative or weaker correlations occur with more distinct dimensions, indicating areas where skill levels vary more independently.
+
+```{r}
+#| label: 10_corrr_rplot
+# corrr correlation plot required by the assignment
+profiles_all |>
+  dplyr::select(all_of(dimension_cols)) |>
+  corrr::correlate() |>
+  corrr::rplot(print_cor = TRUE)
+```
+## 4. Data Audit, Normalizing Dimensions
+### 4.1 Detecting the change in the survey answering scales
+
+The rating scales used in the survey changed across cohorts. The **earlier cohorts** used rating scales that began at **1** and went up to **5** or **7**, depending on the year. In contrast, the **2025 cohort** used a **0–10** scale.
+
+The **min–max table above** (Section 3) shows this clearly for each year.
+
+**Summary.** Because the range of possible scores differs between cohorts, the raw values are **not directly comparable across years**. When comparing skills across cohorts, we must account for these scale differences — otherwise some cohorts may **appear stronger or weaker simply because they used a different scoring scale.**
+
+
+### 4.2 Normalization idea
+
+1. **How to construct a normalized variable.** Use Min–Max scaling within each individual so their minimum becomes 0 and maximum becomes 10:
+   \[
+   \text{Value\_normalized}=\frac{\text{Value}-\min_i}{\max_i-\min_i}\times 10
+   \]
+   This aligns scales across years and ensures each profile spans 0–10.
+
+2. **Drawbacks.** Scores become relative to each person (harder cross-person comparisons); tiny within-person ranges can exaggerate differences; absolute meaning is reduced.
+
+3. **Which scale is better and why.** A **0–10** scale is clearer: 0 means absence of skill and 10 means highest skill. A 1–10 scale compresses the low end and blurs “no skill” vs. “very low”.
+
+
+## Summary
+```{r}
+n_people <- dplyr::n_distinct(profiles_all$Name)
+yr_rng <- range(profiles_all$Year, na.rm = TRUE)
+
+cat(sprintf(
+  "There are %d individuals in total, spanning %d–%d.",
+  n_people, yr_rng[1], yr_rng[2]
+))
+```
+
+**There are `r dplyr::n_distinct(profiles_all$Name)` individuals in total, spanning `r range(profiles_all$Year, na.rm = TRUE)[1]`–`r range(profiles_all$Year, na.rm = TRUE)[2]`.**
+
+## 5. Principal Component Analysis (PCA)
+
+## PCA
+```{r}
+#| label: 10_pca_fit
+# Fit PCA on standardized dimension scores
+PCA <- profiles_all |>
+  select(all_of(dimension_cols)) |>
+  prcomp(scale. = TRUE)
+
+# Variance explained
+sdev <- PCA$sdev
+vars <- sdev^2
+pct  <- vars / sum(vars)
+cpct <- cumsum(pct)
+
+pca_var <- tibble(PC = seq_along(pct), Explained = pct, Cumulative = cpct)
+
+```
+
+```{r}
+#| label: 13_pca_labeled_pairs
+# Build a dataframe with PC scores + meta info, and first names for labels
+pc_df <- PCA$x |>
+  as.data.frame() |>
+  dplyr::bind_cols(profiles_all |> dplyr::select(Name, Type, Year)) |>
+  dplyr::mutate(First_Name = stringr::word(Name, 1))
+
+# PC1–PC2
+p12 <- ggplot2::ggplot(pc_df, aes(PC1, PC2, shape = Type)) +
+  ggplot2::geom_point(alpha = 0.6) +
+  ggplot2::geom_label(
+    data = subset(pc_df, Year == 2025),
+    aes(label = First_Name),
+    alpha = 0.6, size = 3
+  ) +
+  ggplot2::labs(title = "Individuals in PC1–PC2", x = "PC1", y = "PC2") +
+  ggplot2::theme_minimal()
+
+# PC1–PC3
+p13 <- ggplot2::ggplot(pc_df, aes(PC1, PC3, shape = Type)) +
+  ggplot2::geom_point(alpha = 0.6) +
+  ggplot2::geom_label(
+    data = subset(pc_df, Year == 2025),
+    aes(label = First_Name),
+    alpha = 0.6, size = 3
+  ) +
+  ggplot2::labs(title = "Individuals in PC1–PC3", x = "PC1", y = "PC3") +
+  ggplot2::theme_minimal()
+
+# PC2–PC3
+p23 <- ggplot2::ggplot(pc_df, aes(PC2, PC3, shape = Type)) +
+  ggplot2::geom_point(alpha = 0.6) +
+  ggplot2::geom_label(
+    data = subset(pc_df, Year == 2025),
+    aes(label = First_Name),
+    alpha = 0.6, size = 3
+  ) +
+  ggplot2::labs(
+    title = "Individuals in PC2–PC3", 
+    x = "PC2", 
+    y = "PC3"
+  ) +
+  ggplot2::theme_minimal()
+
+# Print all three
+p12; p13; p23
+```
+
+
+** Individuals who are closer together in these PCA plots have more similar skill profiles, while those farther apart differ more strongly. The 2025 labels help highlight which students cluster together and which stand out.
+
+```{r}
+#| label: 11_pca_variance
+#| fig-cap: "PCA: Variance explained per component"
+ggplot2::ggplot(pca_var, aes(PC)) +
+  ggplot2::geom_col(aes(y = Explained)) +
+  ggplot2::geom_line(aes(y = Cumulative)) +
+  ggplot2::geom_point(aes(y = Cumulative)) +
+  ggplot2::scale_x_continuous(breaks = pca_var$PC) +
+  ggplot2::scale_y_continuous(labels = scales::percent) +
+  ggplot2::labs(x = "Principal Component", y = "Variance / Cumulative",
+                title = "PCA: Variance Explained") +
+  ggplot2::theme_minimal()
+```
+**Interpretation.** The first principal component (PC1) explains the largest share of variation across skills, and the first two components together capture most of the overall structure. This means many skill areas tend to vary together rather than independently.
+
+---
+
+### Under “PCA: Variance Explained”
+```{r}
+#| label: 11_pca_variance_notes
+#| results: asis
+library(glue)
+if (!exists("PCA")) {
+  PCA <- profiles_all |>
+    dplyr::select(all_of(dimension_cols)) |>
+    prcomp(scale. = TRUE)
+}
+pct <- (PCA$sdev^2) / sum(PCA$sdev^2)
+cat(glue("
+**Notes.** PC1 explains **{scales::percent(pct[1])}** of variance; the first two PCs explain **{scales::percent(sum(pct[1:2]))}**.  
+Using **{sum(cumsum(pct) < 0.8) + 1}** components captures about **80%** of the variation.  
+This suggests a low-dimensional structure behind the seven scores.
+"))
+```
+
+```{r}
+#| label: 12_pca_loadings_pc1_pc3
+#| fig-cap: "PCA Loadings for PC1–PC3"
+PCA$rotation |>
+  as.data.frame() |>
+  tibble::rownames_to_column("Dimension") |>
+  mutate(Dimension = forcats::fct_rev(forcats::fct_inorder(Dimension))) |>
+  tidyr::pivot_longer(PC1:PC3, names_to = "PC", values_to = "Loading") |>
+  ggplot2::ggplot(aes(Dimension, Loading)) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::facet_wrap(~ PC, nrow = 1) +
+  ggplot2::labs(x = NULL, title = "First Three PC Loadings") +
+  ggplot2::theme_minimal()
+```
+## 5. Principal Component Analysis
+
+In this section, we explore the results of the Principal Component Analysis (PCA).
+There are r length(PCA$sdev) principal components in total.
+
+The standard deviations of the components are r paste(round(PCA$sdev, 3), collapse = ", ").
+
+The variances (squared deviations) are r paste(round(PCA$sdev^2, 3), collapse = ", ").
+
+The total variance is r round(sum(PCA$sdev^2), 3).
+
+The percentages of variance explained by each component are r paste(round(100 * (PCA$sdev^2 / sum(PCA$sdev^2)), 1), collapse = "%, ")%.
+
+The cumulative percentages are r paste(round(cumsum(100 * (PCA$sdev^2 / sum(PCA$sdev^2))), 1), collapse = "%, ")%.
+
+In the following three subsections, we will:
+
+visualize the variance explained by the different principal components (PCs),
+
+visualize the first three PC vectors, and
+
+produce scatterplots showing individuals in PC coordinates.
+---
+
+### Under “PCA Loadings (PC1–PC3)”
+```{r}
+#| label: 12_pca_loadings_notes
+#| results: asis
+library(glue)
+rot <- as.data.frame(PCA$rotation)
+top_pc1 <- rownames(rot)[which.max(abs(rot$PC1))]
+top_pc2 <- rownames(rot)[which.max(abs(rot$PC2))]
+top_pc3 <- rownames(rot)[which.max(abs(rot$PC3))]
+cat(glue("
+**Notes.** PC1 is driven most by **{top_pc1}**; PC2 by **{top_pc2}**; PC3 by **{top_pc3}**.  
+High positive loadings indicate dimensions that move together along that component.  
+Interpreting PCs in terms of skills helps explain the structure seen in the heatmap.
+"))
+```
+
+
+```{r}
+#| label: 13_pca_points
+#| fig-cap: "Individuals in PC1–PC2 space"
+pc_df <- PCA$x |>
+  as.data.frame() |>
+  bind_cols(profiles_all |>
+              select(Name, Type)) |>
+  mutate(First_Name = stringr::word(Name, 1))
+
+ggplot2::ggplot(pc_df, aes(PC1, PC2, shape = Type)) +
+  ggplot2::geom_point(alpha = 0.6) +
+  ggplot2::labs(title = "Individuals in PC1–PC2", x = "PC1", y = "PC2") +
+  ggplot2::theme_minimal()
+
+```
+**Interpretation of Components:**  
+- **PC1 – Core Technical Skill Strength:**  
+  A high value on PC1 indicates strong performance across Mathematics, Programming, and Machine Learning. Individuals scoring high here display strong technical foundations.
+
+- **PC2 – Data Communication vs. Quantitative Focus:**  
+  PC2 contrasts Data Visualization and Social Science skills with the more quantitative dimensions. A high PC2 score suggests stronger abilities in communication, interpretation, and presenting insights; a lower score suggests a more computational and mathematically focused profile.
+
+- **PC3 – Statistics vs. Machine Learning Emphasis:**  
+  PC3 reflects a balance between traditional statistical thinking and modern machine learning techniques. A high value indicates stronger performance in Statistics relative to Machine Learning, while a lower value suggests the opposite.
+
+### Under “Individuals in PC1–PC2 space”
+```{r}
+#| label: 13_pca_points_notes
+#| results: asis
+library(glue)
+pc_df <- as.data.frame(PCA$x) |>
+  dplyr::bind_cols(profiles_all[, c("Type","Name")])
+sep <- abs(mean(pc_df$PC1[pc_df$Type=="Instructor"], na.rm=TRUE) -
+           mean(pc_df$PC1[pc_df$Type=="Student"],   na.rm=TRUE))
+cat(glue("
+**Notes.** The two groups overlap strongly in PC space, with a mean PC1 separation of **{round(sep,2)}**.  
+Any visible clusters likely reflect overall strength on the dimensions driving PC1/PC2.  
+Labels by Type provide a quick sense of whether instructors separate meaningfully from students.
+"))
+```
+**Interpretation:** The PCA scatterplot indicates how individuals cluster based on similarities in their skill profiles. Individuals who are positioned close together tend to have similar patterns of skill strengths, while those who are farther apart differ more prominently.
+
+The separation along PC1 generally reflects overall technical skill strength, whereas PC2 represents variation in the balance between analytical/quantitative versus communication-oriented competencies.
+
+If instructors appear slightly higher along PC1, this suggests that they generally score higher in core technical skills compared to students. My own position on the plot reflects the relative balance of my abilities and how they compare to others in the cohort.
+
+## Simple Linear Models (Programming as Outcome)
+```{r}
+#| label: 14_lm_plots
+base <- profiles_all
+
+p1 <- ggplot2::ggplot(base, aes(Mathematics, Programming)) +
+  ggplot2::geom_point(alpha = 0.25) +
+  ggplot2::geom_smooth(method = "lm", se = FALSE) +
+  ggplot2::theme_minimal() + ggplot2::labs(title = "Math vs Programming")
+
+p2 <- ggplot2::ggplot(base, aes(`Data Visualization`, Programming)) +
+  ggplot2::geom_point(alpha = 0.25) +
+  ggplot2::geom_smooth(method = "lm", se = FALSE) +
+  ggplot2::theme_minimal() + ggplot2::labs(title = "Data Viz vs Programming")
+
+p3 <- ggplot2::ggplot(base, aes(`Machine Learning`, Programming)) +
+  ggplot2::geom_point(alpha = 0.25) +
+  ggplot2::geom_smooth(method = "lm", se = FALSE) +
+  ggplot2::theme_minimal() + ggplot2::labs(title = "ML vs Programming")
+
+p1 + p2 + p3
+```
+**Interpretation.** All three skills show positive relationships with Programming. Higher scores in Mathematics, Data Visualization, and Machine Learning tend to coincide with higher Programming scores, though the strength of the associations differs.
+
+---
+
+### Under “Simple Linear Models (Programming as Outcome)”
+```{r}
+#| label: 15_lm_notes
+#| results: asis
+
+library(glue)
+
+full_mod <- lm(
+  Programming ~ Mathematics + `Data Visualization` + `Machine Learning`,
+  data = profiles_all
+)
+
+coefs    <- summary(full_mod)$coefficients[-1, , drop = FALSE]
+top_pred <- rownames(coefs)[ which.max(abs(coefs[, "Estimate"])) ]
+sig      <- any(coefs[, "Pr(>|t|)"] < 0.05)
+
+cat(glue(
+  "**Notes.** In the multi-predictor model for **Programming**, the largest effect size is for **{top_pred}**.\n",
+  "Simple bivariate fits show positive slopes for the core technical dimensions (see scatter/smooth lines).\n",
+  "Overall, the combined model is {ifelse(sig, 'statistically informative (some predictors significant).', 'suggestive but not strongly significant.')}."
+))
+```
+
+
+
+```{r}
+# PCA models for Section 5
+
+math_mod <- lm(
+  Programming ~ Mathematics,
+  data = profiles_all
+)
+
+dv_mod <- lm(
+  Programming ~ `Data Visualization`,
+  data = profiles_all
+)
+
+ml_mod <- lm(
+  Programming ~ `Machine Learning`,
+  data = profiles_all
+)
+
+full_mod <- lm(
+  Programming ~ Mathematics + `Data Visualization` + `Machine Learning`,
+  data = profiles_all
+)
+
+cat("===== Section 5 Model Summaries (PCA Pre-Context) =====\n")
+print(summary(math_mod))
+print(summary(dv_mod))
+print(summary(ml_mod))
+print(summary(full_mod))
+```
+
+
+mod**Quantitative Model Description.**  
+To quantify the relationships among the skills, we examined the regression coefficients in the combined model. Mathematics shows the strongest positive effect on Programming when the other skills are held constant, indicating that individuals with stronger mathematical ability tend to also perform better in Programming. Machine Learning also contributes positively, though to a lesser extent. Data Visualization shows a smaller effect, suggesting that while it is related to Programming, it does not influence it as strongly as Mathematics or Machine Learning.
+
+This pattern suggests that Programming skill is most closely linked to analytical and algorithmic reasoning (as captured by Mathematics), while skills like Data Visualization and Machine Learning contribute additional but smaller improvements. Overall, the model supports the idea that strong foundational technical skills reinforce each other.
+
+
+**Interpretation.** In the combined model, the predictors overlap in how they explain Programming. Each contributes, but not fully independently of the others. This means strong performance in one technical skill often accompanies strong performance in others.
+
+## Part 6: Extended Linear Model Analysis
+
+# 6.1 — Using Mathematics, Data Visualization, and ML
+
+
+```{r}
+library(ggplot2)
+library(patchwork)
+
+math <- ggplot(profiles_all, aes(x = Mathematics, y = Programming)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal()
+
+dv <- ggplot(profiles_all, aes(x = `Data Visualization`, y = Programming)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal()
+
+ml <- ggplot(profiles_all, aes(x = `Machine Learning`, y = Programming)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal()
+
+math + dv + ml
+
+```
+**Summary.** Programming is positively associated with all three skills. The strongest relationship appears with Machine Learning, followed by Mathematics. Data Visualization shows a weaker but still positive association.
+```{r}
+# 6.1 linear models: Programming explained by each skill, then all three
+math_mod     <- lm(Programming ~ Mathematics, data = profiles_all)
+dv_mod       <- lm(Programming ~ `Data Visualization`, data = profiles_all)
+ml_mod       <- lm(Programming ~ `Machine Learning`, data = profiles_all)
+mathdvml_mod <- lm(Programming ~ Mathematics + `Data Visualization` + `Machine Learning`,
+                   data = profiles_all)
+
+# Print summaries so they appear in the HTML
+print(summary(math_mod))
+print(summary(dv_mod))
+print(summary(ml_mod))
+print(summary(mathdvml_mod))
+```
+**Summary (6.1).** The single-predictor models show that all three skills
+(Mathematics, Data Visualization, and Machine Learning) are positively
+associated with Programming scores. Among them, Machine Learning has the
+strongest positive coefficient, followed by Mathematics, while Data
+Visualization shows a weaker positive association.
+
+In the full model that includes all three predictors together, Machine
+Learning remains the strongest predictor of Programming performance.
+The contribution of Data Visualization becomes small once the other
+skills are considered, suggesting that it overlaps with them. Overall,
+students who are stronger in Machine Learning and Mathematics tend to
+achieve higher Programming scores.
+
+
+
+
+# =======================================
+# 6.2 — Using Statistics and Type
+# =======================================
+
+```{r}
+library(ggplot2)
+library(patchwork)
+
+# Scatter 1: Programming vs Statistics
+stat <- ggplot(profiles_all, aes(x = Statistics, y = Programming)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal()
+
+# Scatter 2: Programming vs Statistics, colored by Type
+stattype <- ggplot(profiles_all, aes(x = Statistics, y = Programming, color = Type)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal()
+
+# Show side-by-side
+stat + stattype
+
+```
+
+
+**Interpretation:** The scatterplots show that Statistics has a positive association with Programming ability. Individuals who score higher in Statistics tend to also have higher Programming scores. When separated by Type, the positive trend is noticeably stronger among Instructors, suggesting that instructors with stronger statistical backgrounds also tend to program more proficiently. Among Students, the relationship is still positive but weaker, indicating more variability in how statistical skills translate into programming ability.
+
+# Four linear models for 6.2
+stat_mod        <- lm(Programming ~ Statistics, data = profiles_all)
+type_mod        <- lm(Programming ~ Type, data = profiles_all)
+stattype_mod    <- lm(Programming ~ Statistics + Type, data = profiles_all)
+stattypeint_mod <- lm(Programming ~ Statistics * Type, data = profiles_all)
+
+# Print model summaries (6.2)
+cat("\n\n===== 6.2 MODEL SUMMARIES =====\n")
+print(summary(stat_mod))
+print(summary(type_mod))
+print(summary(stattype_mod))
+print(summary(stattypeint_mod))
+# | label: stattype_mod
+# | echo: true
+
+
+---
+
+# ✅ **CHUNK 2 — Create the Four Models**
+
+```{r}
+stat_mod <- lm(Programming ~ Statistics, data = profiles_all)
+type_mod <- lm(Programming ~ Type, data = profiles_all)
+stattype_mod <- lm(Programming ~ Statistics + Type, data = profiles_all)
+stattypeint_mod <- lm(Programming ~ Statistics * Type, data = profiles_all)
+
+```
+
+# ✅ **CHUNK 3 — Print the Model Summaries**
+```{r}
+cat("===== 6.2 MODEL SUMMARIES =====\n")
+summary(stat_mod)
+summary(type_mod)
+summary(stattype_mod)
+summary(stattypeint_mod)
+
+```
+
+### Interpretation of Association between Statistics and Programming
+
+The analysis shows a positive association between Statistics and Programming scores. This means that individuals who perform well in Statistics also tend to perform well in Programming. When comparing instructors and students, both groups follow this general upward trend, but the instructors usually have higher average Programming scores at similar levels of Statistics. The difference in slope between the two groups indicates that the relationship is slightly stronger for instructors, suggesting that their improvement in Programming is more pronounced as their Statistics scores increase. Overall, the results suggest that strong statistical skills are closely linked to strong programming performance across both groups.
+
+### Quantitative Model Description
+
+The linear regression analyses examine how different aspects of data science skills—Mathematics, Data Visualization, Machine Learning, and Statistics—relate to Programming performance.  
+
+In the first set of models, **Mathematics**, **Data Visualization**, and **Machine Learning** were each used separately to predict Programming scores.  
+All three predictors show **positive relationships** with Programming, meaning that students who score higher in these areas also tend to have higher Programming scores.  
+However, the strength of the association varies: Mathematics often shows the strongest linear relationship, while Data Visualization and Machine Learning show slightly weaker, though still positive, effects.
+
+When all three predictors are combined in a full model, we can assess how each contributes **while controlling for the others**.  
+In this model, some predictors may lose significance, indicating **shared variance**—for example, strong overlap between Mathematics and Machine Learning.  
+This suggests these skills develop together and jointly explain Programming ability.
+
+In the second set of models, **Statistics** and **Type** (Instructor vs. Student) are included.  
+Adding `Type` as a factor allows us to see whether instructors differ systematically from students in Programming outcomes.  
+The **interaction term** `Statistics * Type` checks whether the effect of Statistics on Programming is different for instructors than for students.
+
+Overall, the quantitative results show that Programming skills are positively associated with core data science dimensions.  
+Mathematics tends to be the most consistent predictor, while Statistics also plays an important role.  
+Including Type helps identify whether teaching experience or role influences these relationships, offering deeper insight into patterns of skill development across groups.
