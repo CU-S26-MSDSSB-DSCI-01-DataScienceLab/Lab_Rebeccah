@@ -1,0 +1,36 @@
+---
+title: "Data Science Profile of YOURNAME"
+format:   
+  html: 
+    embed-resources: true
+    code-fold: true
+---
+
+```{r}
+#| label: packages-data
+#| message: false
+library(tidyverse)
+library(readxl) # For reading Excel files
+
+# Read in the data below
+
+```
+
+
+## My Data Science Profile {#sec-1}
+
+I am **Replace with your name!**. I am from **Replace with your location!**.
+
+*Replace with quarto markdown code showing an image of yourself!*
+
+This is my Data Science Profile:
+
+```{r}
+#| label: my-profile
+
+
+```
+
+**Background of my top data science skills:** *Replace with your text!*
+
+**Next things I want to learn in data science:** *Replace with your text!*
